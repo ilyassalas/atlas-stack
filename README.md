@@ -1,5 +1,7 @@
 # atlas-stack
 
+![Validate stack](https://github.com/ilyassalas/atlas-stack/actions/workflows/validate.yml/badge.svg)
+
 Production stack for an AI booking & support agent — **n8n, PostgreSQL + pgvector, Caddy (HTTPS), Docker Compose**, self-hosted on an OVH VPS (Ubuntu 24.04).
 
 It runs **Conduite Atlas**, an AI agent for a *fictional* French driving school. It answers prospects' questions, books appointments, and logs leads.
@@ -19,25 +21,26 @@ It runs **Conduite Atlas**, an AI agent for a *fictional* French driving school.
 
 ## Architecture
 
+```
 Browser (salaspartners.com/demo)
-│ HTTPS
-▼
-Caddy ── automatic Let’s Encrypt certificates
-│
-▼
-n8n ── AI agent workflow (Tools Agent)
-│ ├─ OpenAI (chat model + embeddings)
-│ ├─ Google Calendar (booking)
-│ └─ Google Sheets (lead log)
-▼
-PostgreSQL 16 + pgvector
-├─ n8n data (workflows, executions)
-├─ chat memory
-├─ knowledge-base embeddings
-└─ usage limits
-
+        │  HTTPS
+        ▼
+     Caddy  ── automatic Let's Encrypt certificates
+        │
+        ▼
+      n8n  ── AI agent workflow (Tools Agent)
+        │        ├─ OpenAI (chat model + embeddings)
+        │        ├─ Google Calendar (booking)
+        │        └─ Google Sheets (lead log)
+        ▼
+  PostgreSQL 16 + pgvector
+     ├─ n8n database: workflows, executions, encrypted credentials
+     └─ atlas database: chat memory, knowledge-base embeddings, usage limits
+```
 
 Only Caddy is exposed to the internet. n8n and PostgreSQL are reachable only inside Docker's internal network.
+
+**Two databases, one Postgres server.** n8n keeps its internal tables in its own database. `init/01-atlas.sql` runs once, on the first start, and creates a separate `atlas` database with the `vector` extension for the agent's own data, so my tables never mix with n8n's.
 
 ## Security and abuse protection
 
@@ -55,25 +58,32 @@ Only Caddy is exposed to the internet. n8n and PostgreSQL are reachable only ins
 - **Retry On Fail** on the Google Calendar and Google Sheets nodes (3 tries, 2 s apart) to absorb temporary API errors.
 - Tested end to end with a webhook → Stop and Error workflow.
 
+## Continuous integration
+
+Every push runs `.github/workflows/validate.yml`, which checks that `docker-compose.yml` parses (`docker compose config`) and that the `Caddyfile` is valid (`caddy validate`). A broken config is caught on GitHub before it reaches the server.
+
 ## Repository files
 
 | File | Purpose |
 |---|---|
 | `docker-compose.yml` | The three services: Caddy, n8n, PostgreSQL + pgvector |
 | `Caddyfile` | HTTPS reverse proxy for `n8n.salaspartners.com` |
+| `init/01-atlas.sql` | First-start script: creates the `atlas` database and enables pgvector |
+| `.github/workflows/validate.yml` | CI: validates the Compose file and the Caddyfile on every push |
 | `.env.example` | Required variables, without values |
 | `.gitignore` | Keeps `.env` out of Git |
 
 ## Run it
 
 ```bash
-git clone https://github.com/<your-username>/atlas-stack.git
+git clone https://github.com/ilyassalas/atlas-stack.git
 cd atlas-stack
 cp .env.example .env
 # generate secrets
 sed -i "s/^N8N_ENCRYPTION_KEY=.*/N8N_ENCRYPTION_KEY=$(openssl rand -hex 32)/" .env
 sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env
 chmod 600 .env
+# set N8N_HOST to your domain and pin N8N_VERSION in .env, then:
 docker compose up -d
 docker compose ps
 ```
@@ -94,6 +104,7 @@ docker compose logs --tail=50 n8n
 ```
 
 ⚠️ Never run `docker compose down -v`: `-v` deletes the volumes (database, workflows, credentials).
+
 ⚠️ Keep `N8N_ENCRYPTION_KEY` safe: without it, saved credentials can't be decrypted.
 
 ## Next steps
