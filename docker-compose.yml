@@ -50,6 +50,9 @@ services:
       - N8N_RUNNERS_ENABLED=true
       - GENERIC_TIMEZONE=Europe/Paris
       - TZ=Europe/Paris
+      - WA_APP_SECRET=${WA_APP_SECRET}
+      - WA_VERIFY_TOKEN=${WA_VERIFY_TOKEN}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
